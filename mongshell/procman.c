@@ -86,10 +86,16 @@ typedef struct command_line command_line;
 
 int run(const char*);
 int process_line(const char*);
+void run_once(command_line*);
+void run_wait(command_line*);
+void run_respawn(command_line*);
+command_line* find_command_line_by_id(char*);
 int test_format(const char*);
+int id_validate(const char*);
 struct command_line* tokenizing_line(const char*);
 char* paxtok (char*, char*);
 char* trim_whitespace(char*);
+char** build_argv(command_line*);
 
 int line_number;
 struct list* command_line_list;
@@ -114,13 +120,17 @@ int run(const char* filename) {
 	command_line_list = list_create();
 	
 	char line[256];
-	while (1) {
+	while (!feof(fp)) {
 		memset_zero(line);
 		fgets(line, sizeof(line), fp);
 		line_number ++;
 		
 		// remove LF
-		line[strlen(line) - 1] = 0;
+		if (line[strlen(line) - 1] == '\n') {
+			line[strlen(line) - 1] = 0;
+		}
+		
+		// pass blank line
 		if (strlen(line) == 0) {
 			continue;
 		}
@@ -131,9 +141,12 @@ int run(const char* filename) {
 		}
 		
 		if (process_line(line) < 0) {
-			return -1;
+			continue;
 		}
 	}
+
+	// little sleep before end program
+	usleep(1000000);
 	
 	return 0;
 }
@@ -144,44 +157,85 @@ int process_line(const char* line) {
 	}
 	
 	struct command_line* cmd_line = tokenizing_line(line);
-	list_push_back(command_line_list, cmd_line);
-	
-	printf("%s : %s : %s : %s\n", cmd_line->id, cmd_line->action, cmd_line->pipe_id, cmd_line->command);
+
+	if (id_validate(cmd_line->id) < 0) {
+		fprintf(stderr, "invalid id \'%s\' in line %d, ignored\n", cmd_line->id, line_number);
+		return -1;
+	}
+
+	command_line* target_command_line = find_command_line_by_id(cmd_line->id);
+	if (target_command_line != NULL) {
+		fprintf(stderr, "duplicate id \'%s\' in line %d, ignored\n", cmd_line->id, line_number);
+		return -1;
+	}
 	
 	if (strlen(cmd_line->action) == 0 ||
 		(! equal_str (cmd_line->action, "once")
 			&& ! equal_str (cmd_line->action, "wait")
 			&& ! equal_str (cmd_line->action, "respawn"))) {
-		fprintf(stderr, "invalid action \'%s\' in line %d, ignored", cmd_line->action, line_number);
+		fprintf(stderr, "invalid action \'%s\' in line %d, ignored\n", cmd_line->action, line_number);
 		return -1;
 	}
-	
-	// int is_background = 0;
-	// for (int i = strlen(command) - 1; i >= 0; i --) {
-	// 	if (command[i] == '&') {
-	// 		is_background = 1;
-	// 		break;
-	// 	}
-	
-	// 	if (command[i] != ' ') {
-	// 		break;
-	// 	}
-	// }
-	
-	// if (fork() == 0) {
-	// 	// child process run codes inside here
-	// 	int ret = execve(argv[0], &argv[0], NULL);
-	// 	printf("errno(%d)\n", errno);
-	// 	return -1;
-	// }
-	
-	// // if not background mode, wait for child process
-	// if (!is_background) {
-	// 	int status;
-	// 	pid_t ret = wait(&status);
-	// }
+
+	if (strlen(cmd_line->pipe_id) > 0) {
+		command_line* target_command_line = find_command_line_by_id(cmd_line->pipe_id);
+		if (target_command_line == NULL) {
+			fprintf(stderr, "invalid pipe-id \'%s\' in line %d, ignored\n", cmd_line->pipe_id, line_number);
+			return -1;
+		}
+	}
+
+	if (strlen(cmd_line->command) == 0) {
+		fprintf(stderr, "empty command in line %d, ignored\n", line_number);
+	}
+
+	list_push_back(command_line_list, cmd_line);
+
+	if (equal_str(cmd_line->action, "once")) {
+		run_once(cmd_line);
+	} else if (equal_str(cmd_line->action, "wait")) {
+		run_wait(cmd_line);
+	} else if (equal_str(cmd_line->action, "respawn")) {
+		run_respawn(cmd_line);
+	}
+
+	usleep(100000);
 	
 	return 0;
+}
+
+void run_once(command_line* cmd_line) {
+	if (fork() == 0) {
+		char **argv = build_argv(cmd_line);
+		int ret = execlp(argv[0], &argv[0], NULL);
+		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", cmd_line->command);
+	}
+}
+
+void run_wait(command_line* cmd_line) {
+	int child_pid = fork();
+	if (child_pid == 0) {
+		char **argv = build_argv(cmd_line);
+		int ret = execlp(argv[0], &argv[0], NULL);
+		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", cmd_line->command);
+	}
+
+	int status;
+	waitpid(child_pid, &status, 0);
+}
+
+void run_respawn(command_line* cmd_line) {
+
+}
+
+command_line* find_command_line_by_id(char *id) {
+	for (int i = 0; i < command_line_list->num_of_elements; i++) {
+		if (equal_str(command_line_list->elements[i], id)) {
+			return command_line_list->elements[i];
+		}
+	}
+
+	return NULL;
 }
 
 int test_format(const char* line) {
@@ -198,6 +252,19 @@ int test_format(const char* line) {
 		return -1;
 	}
 	
+	return 0;
+}
+
+int id_validate(const char* id) {
+	int length = strlen(id);
+	for (int i = 0; i < length; i++) {
+		if ((id[i] >= 'a' && id[i] <= 'z') 
+			|| (id[i] >= '0' && id[i] <= '9' )) {
+		} else {
+			return -1;
+		}
+	}
+
 	return 0;
 }
 
@@ -292,4 +359,28 @@ char *trim_whitespace(char *str) {
 	*(end+1) = 0;
 	
 	return str;
+}
+
+char** build_argv(command_line* cmd_line) {
+	int length = strlen(cmd_line->command);
+	int argv_count = 1;
+	for (int i = 0; i < length; i++) {
+		if (cmd_line->command[i] == ' ') {
+			argv_count++;
+		}
+	}
+
+	char command_clone[1024];
+	strcpy(command_clone, cmd_line->command);
+
+	char** argv = malloc(sizeof(char*) * argv_count);
+	argv[0] = strdup(strtok(command_clone, " "));
+
+	char *ptr = NULL;
+	int i = 1;
+	while((ptr = strtok(NULL, " ")) != NULL) {
+		argv[i++] = strdup(ptr);
+	}
+
+	return argv;
 }
