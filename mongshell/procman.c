@@ -101,7 +101,7 @@ void signal_handler(int signo);
 int run(const char*);
 int process_line(const char*);
 int process_command_line(command_line*);
-command_line* find_command_line_by_id(char*);
+command_line* find_command_line_by_id(const char*);
 int test_format(const char*);
 int id_validate(const char*);
 struct command_line* tokenizing_line(const char*);
@@ -228,13 +228,19 @@ int process_line(const char* line) {
 
 	if (strlen(cmd_line->pipe_id) > 0) {
 		if (find_command_line_by_id(cmd_line->pipe_id) == NULL) {
-			fprintf(stderr, "invalid pipe-id \'%s\' in line %d, ignored\n", cmd_line->pipe_id, line_number);
+			if (id_validate(cmd_line->pipe_id) < 0) {
+				fprintf(stderr, "invalid pipe-id \'%s\' in line %d, ignored\n", cmd_line->pipe_id, line_number);
+			} else {
+				fprintf(stderr, "unknown pipe-id \'%s\' in line %d, ignored\n", cmd_line->pipe_id, line_number);
+			}
+			
 			return -1;
 		}
 	}
 
 	if (strlen(cmd_line->command) == 0) {
 		fprintf(stderr, "empty command in line %d, ignored\n", line_number);
+		return -1;
 	}
 
 	list_push_back(command_line_list, cmd_line);
@@ -275,9 +281,10 @@ int process_command_line(command_line* cmd_line) {
 	}
 }
 
-command_line* find_command_line_by_id(char *id) {
+command_line* find_command_line_by_id(const char *id) {
 	for (int i = 0; i < command_line_list->num_of_elements; i++) {
-		if (equal_str(command_line_list->elements[i], id)) {
+		command_line* elem = (command_line*)command_line_list->elements[i];
+		if (equal_str(elem->id, id)) {
 			return command_line_list->elements[i];
 		}
 	}
