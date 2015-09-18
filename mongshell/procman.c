@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <signal.h>
 #include <ctype.h>
 #include <errno.h>
@@ -89,15 +90,17 @@ struct command_line {
 
 	int pipe_filedes[2];
 	int piped;
+	struct command_line* target_command_line;
+
+	pid_t pid;
 };
 typedef struct command_line command_line;
 
 
+void signal_handler(int signo);
 int run(const char*);
 int process_line(const char*);
-void run_once(command_line*);
-void run_wait(command_line*);
-void run_respawn(command_line*);
+int process_command_line(command_line*);
 command_line* find_command_line_by_id(char*);
 int test_format(const char*);
 int id_validate(const char*);
@@ -116,8 +119,44 @@ int main (int argc, char **argv) {
 		fprintf (stderr, "usage: %s config-file\n", argv[0]);
 		return -1;
 	}
+
+	struct sigaction sa;
+	sa.sa_flags = 0;
+
+	// SIGINT
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGINT, &sa, NULL); 
+
+	// SIGCHLD
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGCHLD, &sa, NULL); 
+
+	// SIGTERM
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGTERM, &sa, NULL); 
 	
 	return run(argv[1]);;
+}
+
+void signal_handler(int signo) {
+	if (signo == SIGINT) {
+		exit(1);
+	} else if (signo == SIGCHLD) {
+		int state;
+		pid_t pid_child = waitpid(-1, &state, WNOHANG);
+		for (int i = 0; i < command_line_list->num_of_elements; i++) {
+			command_line* cmd_line = (command_line*)command_line_list->elements[i];
+			if (cmd_line->pid == pid_child && equal_str(cmd_line->action, "respawn")) {
+				process_command_line(cmd_line);
+				break;
+			}
+		}
+	} else if (signo == SIGTERM) {
+		exit(1);
+	}
 }
 
 int run(const char* filename) {
@@ -200,63 +239,40 @@ int process_line(const char* line) {
 
 	list_push_back(command_line_list, cmd_line);
 
-	if (equal_str(cmd_line->action, "once")) {
-		run_once(cmd_line);
-	} else if (equal_str(cmd_line->action, "wait")) {
-		run_wait(cmd_line);
-	} else if (equal_str(cmd_line->action, "respawn")) {
-		run_respawn(cmd_line);
-	}
+	process_command_line(cmd_line);
 
 	return 0;
 }
 
-void run_once(command_line* cmd_line) {
-	pipe(cmd_line->pipe_filedes);
-
+int process_command_line(command_line* cmd_line) {
 	if (piping_if_exist_pipe_id(cmd_line) < 0) {
 		fprintf(stderr, "pipe not allowed for already piped tasks in line %d, ignored\n", line_number);
-		return;
-	}
-
-	if (fork() == 0) {
-		usleep(DELAY_EXEC_IN_MICRO_SECOND);
-
-		dup2(cmd_line->pipe_filedes[0], FD_STDIN);
-		dup2(cmd_line->pipe_filedes[1], FD_STDOUT);
-
-		char **argv = build_argv(cmd_line);
-		execvp(argv[0], argv);
-		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", argv[0]);
-	}
-}
-
-void run_wait(command_line* cmd_line) {
-	pipe(cmd_line->pipe_filedes);
-
-	if (piping_if_exist_pipe_id(cmd_line) < 0) {
-		fprintf(stderr, "pipe not allowed for already piped tasks in line %d, ignored\n", line_number);
-		return;
+		return -1;
 	}
 
 	int child_pid = fork();
 	if (child_pid == 0) {
 		usleep(DELAY_EXEC_IN_MICRO_SECOND);
 
-		dup2(cmd_line->pipe_filedes[0], FD_STDIN);
-		dup2(cmd_line->pipe_filedes[1], FD_STDOUT);
+		if (cmd_line->piped) {
+			dup2(cmd_line->target_command_line->pipe_filedes[0], FD_STDIN);
+			dup2(cmd_line->target_command_line->pipe_filedes[1], FD_STDOUT);
+		} else {
+			dup2(cmd_line->pipe_filedes[0], FD_STDIN);
+			dup2(cmd_line->pipe_filedes[1], FD_STDOUT);
+		}
 
 		char **argv = build_argv(cmd_line);
 		execvp(argv[0], argv);
 		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", argv[0]);
 	}
 
-	int status;
-	waitpid(child_pid, &status, 0);
-}
+	cmd_line->pid = child_pid;
 
-void run_respawn(command_line* cmd_line) {
-
+	if (equal_str(cmd_line->action, "wait")) {
+		int status;
+		waitpid(child_pid, &status, 0);
+	}
 }
 
 command_line* find_command_line_by_id(char *id) {
@@ -411,7 +427,7 @@ char** build_argv(command_line* cmd_line) {
 	char *ptr = NULL;
 	int i = 1;
 	while((ptr = strtok(NULL, " ")) != NULL) {
-		argv[i++] = strdup(ptr);
+		argv[i++] = strdup(ptr);	
 	}
 
 	argv[i] = NULL;
@@ -420,15 +436,21 @@ char** build_argv(command_line* cmd_line) {
 }
 
 int piping_if_exist_pipe_id(command_line* cmd_line) {
+	pipe(cmd_line->pipe_filedes);
+
+	dup2(cmd_line->pipe_filedes[0], FD_STDIN);
+	dup2(cmd_line->pipe_filedes[1], FD_STDOUT);
+
 	command_line* target_command_line = NULL;
 	if (strlen(cmd_line->pipe_id) != 0) {
 		target_command_line = find_command_line_by_id(cmd_line->pipe_id);
 		if (!target_command_line->piped) {
 			target_command_line->piped = 1;
 			cmd_line->piped = 1;
+			cmd_line->target_command_line = target_command_line;
 
-			dup2(target_command_line->pipe_filedes[0], cmd_line->pipe_filedes[0]);
-			dup2(target_command_line->pipe_filedes[1], cmd_line->pipe_filedes[1]);
+			dup2(target_command_line->pipe_filedes[0], cmd_line->pipe_filedes[1]);
+			dup2(target_command_line->pipe_filedes[1], cmd_line->pipe_filedes[0]);
 		} else {
 			fprintf(stderr, "pipe not allowed for already piped tasks in line %d, ignored\n", line_number);
 			return -1;
