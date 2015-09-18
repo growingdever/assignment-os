@@ -195,7 +195,7 @@ int run(const char* filename) {
 	}
 
 	// little sleep before end program
-	usleep(1000000);
+	sleep(3);
 	
 	return 0;
 }
@@ -212,8 +212,7 @@ int process_line(const char* line) {
 		return -1;
 	}
 
-	command_line* target_command_line = find_command_line_by_id(cmd_line->id);
-	if (target_command_line != NULL) {
+	if (find_command_line_by_id(cmd_line->id) != NULL) {
 		fprintf(stderr, "duplicate id \'%s\' in line %d, ignored\n", cmd_line->id, line_number);
 		return -1;
 	}
@@ -227,7 +226,8 @@ int process_line(const char* line) {
 	}
 
 	if (strlen(cmd_line->pipe_id) > 0) {
-		if (find_command_line_by_id(cmd_line->pipe_id) == NULL) {
+		command_line* target_command_line = find_command_line_by_id(cmd_line->pipe_id);
+		if (target_command_line == NULL) {
 			if (id_validate(cmd_line->pipe_id) < 0) {
 				fprintf(stderr, "invalid pipe-id \'%s\' in line %d, ignored\n", cmd_line->pipe_id, line_number);
 			} else {
@@ -235,6 +235,16 @@ int process_line(const char* line) {
 			}
 			
 			return -1;
+		} else {
+			if (equal_str(cmd_line->action, "respawn") || equal_str(target_command_line->action, "respawn")) {
+				fprintf(stderr, "pipe not allowed for \'respawn\' tasks in line %d, ignored\n", line_number);
+				return -1;
+			}
+
+			if (target_command_line->piped) {
+				fprintf(stderr, "pipe not allowed for already piped tasks in line %d, ignored\n", line_number);
+				return -1;
+			}
 		}
 	}
 
@@ -252,33 +262,39 @@ int process_line(const char* line) {
 
 int process_command_line(command_line* cmd_line) {
 	if (piping_if_exist_pipe_id(cmd_line) < 0) {
-		fprintf(stderr, "pipe not allowed for already piped tasks in line %d, ignored\n", line_number);
 		return -1;
 	}
 
-	int child_pid = fork();
-	if (child_pid == 0) {
+	if (fork() == 0) {
 		usleep(DELAY_EXEC_IN_MICRO_SECOND);
 
-		if (cmd_line->piped) {
-			dup2(cmd_line->target_command_line->pipe_filedes[0], FD_STDIN);
-			dup2(cmd_line->target_command_line->pipe_filedes[1], FD_STDOUT);
-		} else {
-			dup2(cmd_line->pipe_filedes[0], FD_STDIN);
-			dup2(cmd_line->pipe_filedes[1], FD_STDOUT);
+		int child_pid = fork();
+		if (child_pid == 0) {
+			if (cmd_line->piped) {
+				dup2(cmd_line->target_command_line->pipe_filedes[0], FD_STDIN);
+				dup2(cmd_line->target_command_line->pipe_filedes[1], FD_STDOUT);
+			} else {
+				dup2(cmd_line->pipe_filedes[0], FD_STDIN);
+				dup2(cmd_line->pipe_filedes[1], FD_STDOUT);
+			}
+
+			char **argv = build_argv(cmd_line);
+			execvp(argv[0], argv);
+			fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", argv[0]);
+			exit(-1);
 		}
 
-		char **argv = build_argv(cmd_line);
-		execvp(argv[0], argv);
-		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", argv[0]);
+		cmd_line->pid = child_pid;
+
+		if (equal_str(cmd_line->action, "wait")) {
+			int status;
+			waitpid(child_pid, &status, 0);
+		}
+
+		exit(0);
 	}
 
-	cmd_line->pid = child_pid;
-
-	if (equal_str(cmd_line->action, "wait")) {
-		int status;
-		waitpid(child_pid, &status, 0);
-	}
+	return 0;
 }
 
 command_line* find_command_line_by_id(const char *id) {
@@ -451,17 +467,13 @@ int piping_if_exist_pipe_id(command_line* cmd_line) {
 	command_line* target_command_line = NULL;
 	if (strlen(cmd_line->pipe_id) != 0) {
 		target_command_line = find_command_line_by_id(cmd_line->pipe_id);
-		if (!target_command_line->piped) {
-			target_command_line->piped = 1;
-			cmd_line->piped = 1;
-			cmd_line->target_command_line = target_command_line;
+		
+		target_command_line->piped = 1;
+		cmd_line->piped = 1;
+		cmd_line->target_command_line = target_command_line;
 
-			dup2(target_command_line->pipe_filedes[0], cmd_line->pipe_filedes[1]);
-			dup2(target_command_line->pipe_filedes[1], cmd_line->pipe_filedes[0]);
-		} else {
-			fprintf(stderr, "pipe not allowed for already piped tasks in line %d, ignored\n", line_number);
-			return -1;
-		}
+		dup2(target_command_line->pipe_filedes[0], cmd_line->pipe_filedes[1]);
+		dup2(target_command_line->pipe_filedes[1], cmd_line->pipe_filedes[0]);
 	}
 
 	return 0;
