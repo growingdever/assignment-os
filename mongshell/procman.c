@@ -14,6 +14,10 @@
 #define equal_str(str1, str2) strcmp(str1, str2) == 0
 #define memset_zero(var) memset(var, 0, sizeof(var))
 
+#define FD_STDIN 0
+#define FD_STDOUT 1
+#define FD_STDERR 2
+
 
 /*
  * util - list
@@ -80,6 +84,8 @@ struct command_line {
 	char action[16];
 	char pipe_id[32];
 	char command[1024];
+
+	int pipe_filedes[2];
 };
 typedef struct command_line command_line;
 
@@ -200,24 +206,33 @@ int process_line(const char* line) {
 	}
 
 	usleep(100000);
-	
+
 	return 0;
 }
 
 void run_once(command_line* cmd_line) {
+	pipe(cmd_line->pipe_filedes);
+
 	if (fork() == 0) {
 		char **argv = build_argv(cmd_line);
-		int ret = execlp(argv[0], &argv[0], NULL);
-		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", cmd_line->command);
+		execvp(argv[0], argv);
+		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", argv[0]);
 	}
 }
 
 void run_wait(command_line* cmd_line) {
+	pipe(cmd_line->pipe_filedes);
+
 	int child_pid = fork();
 	if (child_pid == 0) {
+		if (strlen(cmd_line->pipe_id) != 0) {
+			command_line* target_command_line = find_command_line_by_id(cmd_line->pipe_id);
+			dup2(target_command_line->pipe_filedes[1], FD_STDIN);
+		}
+
 		char **argv = build_argv(cmd_line);
-		int ret = execlp(argv[0], &argv[0], NULL);
-		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", cmd_line->command);
+		execvp(argv[0], argv);
+		fprintf(stderr, "failed to execute command \'%s\': No such file or directory\n", argv[0]);
 	}
 
 	int status;
@@ -373,7 +388,7 @@ char** build_argv(command_line* cmd_line) {
 	char command_clone[1024];
 	strcpy(command_clone, cmd_line->command);
 
-	char** argv = malloc(sizeof(char*) * argv_count);
+	char** argv = malloc(sizeof(char*) * (argv_count + 1));
 	argv[0] = strdup(strtok(command_clone, " "));
 
 	char *ptr = NULL;
@@ -381,6 +396,8 @@ char** build_argv(command_line* cmd_line) {
 	while((ptr = strtok(NULL, " ")) != NULL) {
 		argv[i++] = strdup(ptr);
 	}
+
+	argv[i] = NULL;
 
 	return argv;
 }
