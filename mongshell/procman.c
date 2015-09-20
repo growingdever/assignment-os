@@ -105,7 +105,9 @@ struct command_line {
 typedef struct command_line command_line;
 
 
-void signal_handler(int signo);
+void signal_handler(int);
+void broadcasting_signal(int);
+void kill_and_wait(pid_t, int);
 int run(const char*);
 command_line* validate_command_line(char*);
 int process_command_line(command_line*);
@@ -127,33 +129,44 @@ int main (int argc, char **argv) {
 		return -1;
 	}
 
+	printf("main pid : %d\n", getpid());
+
 	struct sigaction sa;
 	sa.sa_flags = 0;
 
 	// SIGINT
 	sa.sa_handler = signal_handler;
 	sigemptyset(&sa.sa_mask);
-	sigaction(SIGINT, &sa, NULL); 
+	if (sigaction(SIGINT, &sa, NULL)) {
+		fprintf(stderr, "sigaction error - SIGINT");
+	}
 
 	// SIGCHLD
 	sa.sa_handler = signal_handler;
 	sigemptyset(&sa.sa_mask);
-	sigaction(SIGCHLD, &sa, NULL); 
+	if (sigaction(SIGCHLD, &sa, NULL)) {
+		fprintf(stderr, "sigaction error - SIGCHLD");
+	}
 
 	// SIGTERM
 	sa.sa_handler = signal_handler;
 	sigemptyset(&sa.sa_mask);
-	sigaction(SIGTERM, &sa, NULL); 
+	if (sigaction(SIGTERM, &sa, NULL)) {
+		fprintf(stderr, "sigaction error - SIGTERM");
+	}
 	
 	return run(argv[1]);;
 }
 
 void signal_handler(int signo) {
 	if (signo == SIGINT) {
+		broadcasting_signal(signo);
+		fprintf(stderr, "terminated by SIGNAL(%d)\n", SIGINT);
 		exit(1);
 	} else if (signo == SIGCHLD) {
 		int state;
 		pid_t pid_child = waitpid(-1, &state, WNOHANG);
+		printf("SIGCHLD %d\n", pid_child);
 		for (int i = 0; i < command_line_list->num_of_elements; i++) {
 			command_line* cmd_line = (command_line*)command_line_list->elements[i];
 			if (cmd_line->pid == pid_child && equal_str(cmd_line->action, "respawn")) {
@@ -162,7 +175,25 @@ void signal_handler(int signo) {
 			}
 		}
 	} else if (signo == SIGTERM) {
+		broadcasting_signal(signo);
+		fprintf(stderr, "terminated by SIGTERM(%d)\n", SIGTERM);
 		exit(1);
+	}
+}
+
+void broadcasting_signal(int signo) {
+	for (int i = 0; i < command_line_list->num_of_elements; i++) {
+		command_line* cmd_line = (command_line*)command_line_list->elements[i];
+		kill_and_wait(cmd_line->pid, signo);
+	}
+}
+
+void kill_and_wait(pid_t target_pid, int signo) {
+	kill(target_pid, signo);
+
+	int status;
+	while (target_pid == waitpid(target_pid, &status, 0)) {
+		// bang bang bang~
 	}
 }
 
@@ -197,10 +228,22 @@ int run(const char* filename) {
 		process_command_line(cmd_line);
 	}
 
-	pid_t pid;
-	int status;
-	while ((pid = wait(&status)) != -1) {
+	while (1) {
+		int status;
+		pid_t pid = wait(&status);
+		if (pid == -1 && errno == EINTR) {
+			continue;
+		}
+
 		// fprintf(stderr, "process %d exits with %d\n", pid, WEXITSTATUS(status));
+		for (int i = 0; i < command_line_list->num_of_elements; i++) {
+			command_line* cmd_line = (command_line*)command_line_list->elements[i];
+			if (cmd_line->pid == pid && equal_str(cmd_line->action, "respawn")) {
+				printf("wait end : %s\n", cmd_line->id);
+				process_command_line(cmd_line);
+				break;
+			}
+		}
 	}
 	
 	return 0;
@@ -307,10 +350,18 @@ int process_command_line(command_line* cmd_line) {
 	}
 
 	cmd_line->pid = child_pid;
+	printf("%s(%d)\n", cmd_line->id, cmd_line->pid);
 
 	if (equal_str(cmd_line->action, "wait")) {
+		pid_t pid;
 		int status;
-		waitpid(child_pid, &status, 0);
+		while ((pid = waitpid(child_pid, &status, 0))) {
+			if (pid == -1 && errno == EINTR) {
+				continue;
+			}
+
+			break;
+		}
 	}
 
 	return 0;
