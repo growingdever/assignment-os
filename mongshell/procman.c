@@ -188,7 +188,6 @@ int run(const char* filename) {
 
 		list_push_back(command_line_list, cmd_line);
 		pipe(cmd_line->pipe_filedes);
-		printf("%s : %d, %d\n", cmd_line->id, cmd_line->pipe_filedes[0], cmd_line->pipe_filedes[1]);
 	}
 
 	fclose(fp);
