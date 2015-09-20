@@ -122,14 +122,14 @@ char** build_argv(command_line*);
 int line_number;
 struct list* command_line_list;
 
+int will_dead;
+
 
 int main (int argc, char **argv) {
 	if (argc <= 1) {
 		fprintf (stderr, "usage: %s config-file\n", argv[0]);
 		return -1;
 	}
-
-	printf("main pid : %d\n", getpid());
 
 	struct sigaction sa;
 	sa.sa_flags = 0;
@@ -160,13 +160,18 @@ int main (int argc, char **argv) {
 
 void signal_handler(int signo) {
 	if (signo == SIGINT) {
+		will_dead = 1;
+
 		broadcasting_signal(signo);
 		fprintf(stderr, "terminated by SIGNAL(%d)\n", SIGINT);
 		exit(1);
 	} else if (signo == SIGCHLD) {
+		if (will_dead) {
+			return;
+		}
+
 		int state;
 		pid_t pid_child = waitpid(-1, &state, WNOHANG);
-		printf("SIGCHLD %d\n", pid_child);
 		for (int i = 0; i < command_line_list->num_of_elements; i++) {
 			command_line* cmd_line = (command_line*)command_line_list->elements[i];
 			if (cmd_line->pid == pid_child && equal_str(cmd_line->action, "respawn")) {
@@ -175,6 +180,8 @@ void signal_handler(int signo) {
 			}
 		}
 	} else if (signo == SIGTERM) {
+		will_dead = 1;
+
 		broadcasting_signal(signo);
 		fprintf(stderr, "terminated by SIGTERM(%d)\n", SIGTERM);
 		exit(1);
@@ -200,7 +207,6 @@ void kill_and_wait(pid_t target_pid, int signo) {
 int run(const char* filename) {
 	FILE *fp = fopen(filename, "r");
 	if (fp == NULL) {
-		printf("failed to open file.\n");
 		return -1;
 	}
 	
@@ -235,11 +241,9 @@ int run(const char* filename) {
 			continue;
 		}
 
-		// fprintf(stderr, "process %d exits with %d\n", pid, WEXITSTATUS(status));
 		for (int i = 0; i < command_line_list->num_of_elements; i++) {
 			command_line* cmd_line = (command_line*)command_line_list->elements[i];
 			if (cmd_line->pid == pid && equal_str(cmd_line->action, "respawn")) {
-				printf("wait end : %s\n", cmd_line->id);
 				process_command_line(cmd_line);
 				break;
 			}
@@ -350,8 +354,7 @@ int process_command_line(command_line* cmd_line) {
 	}
 
 	cmd_line->pid = child_pid;
-	printf("%s(%d)\n", cmd_line->id, cmd_line->pid);
-
+	
 	if (equal_str(cmd_line->action, "wait")) {
 		pid_t pid;
 		int status;
