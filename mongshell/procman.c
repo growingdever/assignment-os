@@ -14,7 +14,14 @@
 
 #define equal_str(str1, str2) strcmp(str1, str2) == 0
 #define memset_zero(var) memset(var, 0, sizeof(var))
-#define dup3(fd1, fd2) do { dup2(fd1, fd2); close(fd1); } while (0);
+#define dup3(fd1, fd2) \
+	do { \
+		int ret = dup2(fd1, fd2); \
+		if (ret == -1) { \
+			fprintf(stderr, "dup2 error %d\n", errno); \
+		} \
+		close(fd1); \
+	} while (0);
 
 #define FD_STDIN 0
 #define FD_STDOUT 1
@@ -181,7 +188,10 @@ int run(const char* filename) {
 
 		list_push_back(command_line_list, cmd_line);
 		pipe(cmd_line->pipe_filedes);
+		printf("%s : %d, %d\n", cmd_line->id, cmd_line->pipe_filedes[0], cmd_line->pipe_filedes[1]);
 	}
+
+	fclose(fp);
 
 	for (int i = 0; i < command_line_list->num_of_elements; i++) {
 		command_line* cmd_line = (command_line*)command_line_list->elements[i];
@@ -190,8 +200,9 @@ int run(const char* filename) {
 
 	pid_t pid;
 	int status;
-	while ((pid = wait(&status)) != -1)
-		fprintf(stderr, "process %d exits with %d\n", pid, WEXITSTATUS(status));
+	while ((pid = wait(&status)) != -1) {
+		// fprintf(stderr, "process %d exits with %d\n", pid, WEXITSTATUS(status));
+	}
 	
 	return 0;
 }
@@ -283,17 +294,9 @@ command_line* validate_command_line(char* line) {
 int process_command_line(command_line* cmd_line) {
 	int child_pid = fork();
 	if (child_pid == 0) {
-		dup3(cmd_line->pipe_filedes[0], FD_STDIN);
-		dup3(cmd_line->pipe_filedes[1], FD_STDOUT);
-
 		if (cmd_line->piped) {
-			// dup3(cmd_line->pipe_filedes[0], cmd_line->target_command_line->pipe_filedes[1]);
-			// dup3(cmd_line->pipe_filedes[1], cmd_line->target_command_line->pipe_filedes[0]);
-
-			dup3(cmd_line->target_command_line->pipe_filedes[0], FD_STDIN);
+			dup3(cmd_line->pipe_filedes[0], FD_STDIN);
 			dup3(cmd_line->target_command_line->pipe_filedes[1], FD_STDOUT);
-		} else {
-			
 		}
 
 		usleep(DELAY_EXEC_IN_MICRO_SECOND);
@@ -361,7 +364,9 @@ struct command_line* tokenizing_line(const char* line) {
 	memset_zero(cmd_line->action);
 	memset_zero(cmd_line->pipe_id);
 	memset_zero(cmd_line->command);
+	memset_zero(cmd_line->pipe_filedes);
 	cmd_line->piped = 0;
+	cmd_line->target_command_line = NULL;
 	
 	char id[32];
 	char action[16];
