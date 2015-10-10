@@ -183,7 +183,7 @@ void signal_handler(int signo) {
 		will_dead = 1;
 
 		broadcasting_signal(signo);
-		fprintf(stderr, "terminated by SIGTERM(%d)\n", SIGTERM);
+		fprintf(stderr, "terminated by SIGNAL(%d)\n", SIGTERM);
 		exit(1);
 	}
 }
@@ -198,6 +198,7 @@ void broadcasting_signal(int signo) {
 void kill_and_wait(pid_t target_pid, int signo) {
 	kill(target_pid, signo);
 
+	// for preventing stop by interrupt
 	int status;
 	while (target_pid == waitpid(target_pid, &status, 0)) {
 		// bang bang bang~
@@ -224,16 +225,20 @@ int run(const char* filename) {
 		}
 
 		list_push_back(command_line_list, cmd_line);
+
+		// create pipe for piping
 		pipe(cmd_line->pipe_filedes);
 	}
 
 	fclose(fp);
 
+	// run commands line by line
 	for (int i = 0; i < command_line_list->num_of_elements; i++) {
 		command_line* cmd_line = (command_line*)command_line_list->elements[i];
 		process_command_line(cmd_line);
 	}
 
+	// wait until all child processes are exited
 	while (1) {
 		int status;
 		pid_t pid = wait(&status);
@@ -241,6 +246,7 @@ int run(const char* filename) {
 			continue;
 		}
 
+		// but if exited command's action type is respwan, re-run that command
 		for (int i = 0; i < command_line_list->num_of_elements; i++) {
 			command_line* cmd_line = (command_line*)command_line_list->elements[i];
 			if (cmd_line->pid == pid && equal_str(cmd_line->action, "respawn")) {
@@ -320,6 +326,8 @@ command_line* validate_command_line(char* line) {
 				return NULL;
 			}
 
+			// link each commands for piping feature
+
 			target_command_line->piped = 1;
 			target_command_line->target_command_line = cmd_line;
 
@@ -340,6 +348,7 @@ command_line* validate_command_line(char* line) {
 int process_command_line(command_line* cmd_line) {
 	int child_pid = fork();
 	if (child_pid == 0) {
+		// use pipe's fd for piping
 		if (cmd_line->piped) {
 			dup3(cmd_line->pipe_filedes[0], FD_STDIN);
 			dup3(cmd_line->target_command_line->pipe_filedes[1], FD_STDOUT);
