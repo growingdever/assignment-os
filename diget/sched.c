@@ -88,6 +88,12 @@ int run(const char*);
 void fgets_except_linefeed(char*, int, FILE*);
 command_line* parse_line(const char*);
 int validate_line(const command_line*);
+int command_line_sort_comp(const void*, const void*);
+int start();
+int algorithm_sjf();
+int algorithm_srt();
+int algorithm_rr();
+int algorithm_pr();
 
 
 int line_number = 0;
@@ -110,7 +116,7 @@ int run(const char* filename) {
         PRINT_ERROR("failed to load input file %s\n", filename);
         return -1;
     }
-
+    
     command_line_list = list_create();
     
     char line[256];
@@ -131,13 +137,13 @@ int run(const char* filename) {
     
     fclose(fp);
     
-    return 0;
+    return start();
 }
 
 
 void fgets_except_linefeed(char* line, int size, FILE *fp) {
     fgets(line, size, fp);
-
+    
     unsigned long len = strlen(line);
     if (len > 0) {
         if (*(line + len - 1) == '\n') {
@@ -185,7 +191,7 @@ int validate_line(const command_line* cmd_line) {
             return -1;
         }
     }
-
+    
     // duplicated process id
     for (int i = 0; i < command_line_list->num_of_elements; i ++) {
         command_line* elem = (command_line*)command_line_list->elements[i];
@@ -194,24 +200,157 @@ int validate_line(const command_line* cmd_line) {
             return -1;
         }
     }
-
+    
     // invalid arrive-time
     if (cmd_line->arrive_time < 0 || cmd_line->arrive_time > 30) {
         PRINT_ERROR("invalid arrive-time \'%d\' in line %d, ignored\n", cmd_line->arrive_time, line_number);
         return -1;
     }
-
+    
     // invalid service-time
     if (cmd_line->service_time < 1 || cmd_line->service_time > 30) {
         PRINT_ERROR("invalid service-time \'%d\' in line %d, ignored\n", cmd_line->service_time, line_number);
         return -1;
     }
-
+    
     // invalid priority
     if (cmd_line->priority < 1 || cmd_line->priority > 10) {
         PRINT_ERROR("invalid priority \'%d\' in line %d, ignored\n", cmd_line->priority, line_number);
         return -1;
     }
     
+    return 0;
+}
+
+
+int command_line_sort_comp_arrive_time(const void* p, const void* q) {
+    command_line* cmd_line1 = (command_line*)(*(void**)p);
+    command_line* cmd_line2 = (command_line*)(*(void**)q);
+    
+    return cmd_line1->arrive_time - cmd_line2->arrive_time;
+}
+
+
+int command_line_sort_comp_id(const void* p, const void* q) {
+    command_line* cmd_line1 = (command_line*)(*(void**)p);
+    command_line* cmd_line2 = (command_line*)(*(void**)q);
+    
+    return strcmp(cmd_line1->id, cmd_line2->id);
+}
+
+
+int start() {
+    qsort(command_line_list->elements,
+          command_line_list->num_of_elements,
+          sizeof(void*),
+          command_line_sort_comp_id);
+    
+    if (algorithm_sjf() < 0) {
+        return -1;
+    }
+    
+    if (algorithm_srt() < 0) {
+        return -1;
+    }
+    
+    if (algorithm_rr() < 0) {
+        return -1;
+    }
+    
+    if (algorithm_pr() < 0) {
+        return -1;
+    }
+    
+    return 0;
+}
+
+struct list* clone_command_line_list() {
+    struct list* command_line_list_clone = list_create();
+    list_resize(command_line_list_clone, command_line_list->num_of_elements);
+    command_line_list_clone->num_of_elements = command_line_list->num_of_elements;
+    for (int i = 0; i < command_line_list->num_of_elements; i ++) {
+        command_line* elem = command_line_list->elements[i];
+        command_line* clone = malloc(sizeof(command_line));
+        memcpy(clone, elem, sizeof(command_line));
+        
+        command_line_list_clone->elements[i] = clone;
+    }
+    
+    return command_line_list_clone;
+}
+
+int end_all_jobs(struct list* job_list) {
+    int finished = 0;
+    for (int i = 0; i < job_list->num_of_elements; i ++) {
+        command_line* cmd_line = job_list->elements[i];
+        if (cmd_line->service_time <= 0) {
+            finished ++;
+        }
+    }
+    
+    return finished == job_list->num_of_elements;
+}
+
+
+void print_result(const char* type, command_line* job_by_time[1024], int end_time) {
+    printf("[%s]\n", type);
+    for (int i = 0; i < command_line_list->num_of_elements; i ++) {
+        command_line* cmd_line = command_line_list->elements[i];
+        printf("%s ", cmd_line->id);
+        for (int j = 0; j < end_time; j ++) {
+            if (strcmp(cmd_line->id, job_by_time[j]->id) == 0) {
+                printf("*");
+            } else {
+                printf(" ");
+            }
+        }
+        printf("\n");
+    }
+    printf("\n");
+}
+
+
+int algorithm_sjf() {
+    struct list* command_line_list_clone = clone_command_line_list();
+    command_line* job_by_time[1024];
+    
+    qsort(command_line_list_clone->elements,
+          command_line_list_clone->num_of_elements,
+          sizeof(void*),
+          command_line_sort_comp_arrive_time);
+    
+    int time = 0;
+    while (!end_all_jobs(command_line_list_clone)) {
+        command_line* target = NULL;
+        int min_service_time = 999;
+        for (int i = 0; i < command_line_list_clone->num_of_elements; i ++) {
+            command_line* cmd_line = command_line_list_clone->elements[i];
+            if (cmd_line->arrive_time <= time && cmd_line->service_time > 0 && cmd_line->service_time < min_service_time) {
+                target = cmd_line;
+                min_service_time = cmd_line->service_time;
+            }
+        }
+        
+        for (int j = time; j <= time + target->service_time; j ++) {
+            job_by_time[j] = target;
+        }
+        time += target->service_time;
+        target->service_time = 0;
+    }
+    
+    print_result("SJF", job_by_time, time);
+    
+    return 0;
+}
+
+int algorithm_srt() {
+    return 0;
+}
+
+int algorithm_rr() {
+    return 0;
+}
+
+int algorithm_pr() {
     return 0;
 }
