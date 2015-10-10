@@ -344,6 +344,32 @@ int algorithm_sjf() {
 }
 
 int algorithm_srt() {
+    struct list* command_line_list_clone = clone_command_line_list();
+    command_line* job_by_time[1024];
+    
+    qsort(command_line_list_clone->elements,
+          command_line_list_clone->num_of_elements,
+          sizeof(void*),
+          command_line_sort_comp_arrive_time);
+    
+    int time = 0;
+    while (!end_all_jobs(command_line_list_clone)) {
+        command_line* target = NULL;
+        int min_service_time = 999;
+        for (int i = 0; i < command_line_list_clone->num_of_elements; i ++) {
+            command_line* cmd_line = command_line_list_clone->elements[i];
+            if (cmd_line->arrive_time <= time && cmd_line->service_time > 0 && cmd_line->service_time < min_service_time) {
+                target = cmd_line;
+                min_service_time = cmd_line->service_time;
+            }
+        }
+        
+        job_by_time[time++] = target;
+        target->service_time--;
+    }
+    
+    print_result("SRT", job_by_time, time);
+    
     return 0;
 }
 
