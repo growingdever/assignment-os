@@ -344,7 +344,7 @@ void print_result(const char* type, job** job_by_time, int end_time, const struc
                 printf(" ");
             }
         }
-        printf("\n");
+        printf(" \n");
     }
     printf("CPU TIME: %d\n", end_time);
     printf("AVERAGE TURNAROUND TIME: %.2f\n", 
