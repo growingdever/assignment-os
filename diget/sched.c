@@ -92,7 +92,9 @@ typedef struct _tag_job {
     char id[16];
     int arrive_time;
     int service_time;
+    int curr_service_time;
     int priority;
+    int end_time;
 } job;
 
 
@@ -187,7 +189,7 @@ job* parse_line(const char* line) {
     job* new_job = malloc(sizeof(job));
     strcpy(new_job->id, id);
     new_job->arrive_time = atoi(arrive_time);
-    new_job->service_time = atoi(service_time);
+    new_job->service_time = new_job->curr_service_time = atoi(service_time);
     new_job->priority = atoi(priority);
     
     return new_job;
@@ -222,8 +224,8 @@ int validate_line(const job* target_job) {
     }
     
     // invalid service-time
-    if (target_job->service_time < 1 || target_job->service_time > 30) {
-        PRINT_ERROR("invalid service-time \'%d\' in line %d, ignored\n", target_job->service_time, line_number);
+    if (target_job->curr_service_time < 1 || target_job->curr_service_time > 30) {
+        PRINT_ERROR("invalid service-time \'%d\' in line %d, ignored\n", target_job->curr_service_time, line_number);
         return -1;
     }
     
@@ -297,7 +299,7 @@ int end_all_jobs(struct list* li) {
     int finished = 0;
     for (int i = 0; i < li->num_of_elements; i ++) {
         job* elem = li->elements[i];
-        if (elem->service_time <= 0) {
+        if (elem->curr_service_time <= 0) {
             finished ++;
         }
     }
@@ -318,7 +320,15 @@ int exist_same_id(struct list* const li, const char* id) {
 }
 
 
-void print_result(const char* type, job** job_by_time, int end_time) {
+void print_result(const char* type, job** job_by_time, int end_time, const struct list* job_list) {
+    int total_turn_arount_time = 0;
+    int total_waiting_time = 0;
+    for (int i = 0; i < job_list->num_of_elements; i ++) {
+        job* elem = job_list->elements[i];
+        total_turn_arount_time += elem->end_time - elem->arrive_time;
+        total_waiting_time += (elem->end_time - elem->arrive_time) - elem->service_time;
+    }
+
     printf("[%s]\n", type);
     for (int i = 0; i < job_list->num_of_elements; i ++) {
         job* elem = job_list->elements[i];
@@ -336,6 +346,12 @@ void print_result(const char* type, job** job_by_time, int end_time) {
         }
         printf("\n");
     }
+    printf("CPU TIME: %d\n", end_time);
+    printf("AVERAGE TURNAROUND TIME: %.2f\n", 
+        1.0f * total_turn_arount_time / job_list->num_of_elements);
+    printf("AVERAGE WAITING TIME: %.2f\n", 
+        1.0f * total_waiting_time / job_list->num_of_elements);
+
     printf("\n");
 }
 
@@ -352,25 +368,26 @@ int algorithm_sjf() {
     int time = 0;
     while (!end_all_jobs(job_list_clone)) {
         job* target = NULL;
-        int min_service_time = 999;
+        int min_curr_service_time = 999;
         for (int i = 0; i < job_list_clone->num_of_elements; i ++) {
             job* elem = job_list_clone->elements[i];
             if (elem->arrive_time <= time 
-                && elem->service_time > 0 
-                && elem->service_time < min_service_time) {
+                && elem->curr_service_time > 0 
+                && elem->curr_service_time < min_curr_service_time) {
                 target = elem;
-                min_service_time = elem->service_time;
+                min_curr_service_time = elem->curr_service_time;
             }
         }
         
-        for (int j = time; j <= time + target->service_time; j ++) {
+        for (int j = time; j <= time + target->curr_service_time; j ++) {
             job_by_time[j] = target;
         }
-        time += target->service_time;
-        target->service_time = 0;
+        time += target->curr_service_time;
+        target->curr_service_time = 0;
+        target->end_time = time;
     }
     
-    print_result("SJF", job_by_time, time);
+    print_result("SJF", job_by_time, time, job_list_clone);
     
     return 0;
 }
@@ -387,22 +404,25 @@ int algorithm_srt() {
     int time = 0;
     while (!end_all_jobs(job_list_clone)) {
         job* target = NULL;
-        int min_service_time = 999;
+        int min_curr_service_time = 999;
         for (int i = 0; i < job_list_clone->num_of_elements; i ++) {
             job* elem = job_list_clone->elements[i];
             if (elem->arrive_time <= time 
-                && elem->service_time > 0 
-                && elem->service_time < min_service_time) {
+                && elem->curr_service_time > 0 
+                && elem->curr_service_time < min_curr_service_time) {
                 target = elem;
-                min_service_time = elem->service_time;
+                min_curr_service_time = elem->curr_service_time;
             }
         }
         
         job_by_time[time++] = target;
-        target->service_time--;
+        target->curr_service_time--;
+        if (target->curr_service_time <= 0) {
+            target->end_time = time;
+        }
     }
     
-    print_result("SRT", job_by_time, time);
+    print_result("SRT", job_by_time, time, job_list_clone);
     
     return 0;
 }
@@ -430,7 +450,7 @@ int algorithm_rr() {
         for (int i = 0; i < job_list_clone->num_of_elements; i ++) {
             job* elem = job_list_clone->elements[i];
             if (elem->arrive_time <= time
-                && elem->service_time > 0) {
+                && elem->curr_service_time > 0) {
                 if (!exist_same_id(round_queue, elem->id)) {
                     int j;
                     for (j = 0; j < next_turn_count; j ++) {
@@ -467,15 +487,17 @@ int algorithm_rr() {
         
         job* target = round_queue->elements[last_job_index];
         job_by_time[time++] = target;
-        target->service_time--;
+        target->curr_service_time--;
         
-        if (target->service_time <= 0) {
+        if (target->curr_service_time <= 0) {
+            target->end_time = time;
+
             list_remove_at(round_queue, last_job_index);
             last_job_index--;
         }
     }
     
-    print_result("RR", job_by_time, time);
+    print_result("RR", job_by_time, time, job_list_clone);
     
     return 0;
 }
@@ -497,7 +519,7 @@ int algorithm_pr() {
         for (int i = 0; i < job_list_clone->num_of_elements; i ++) {
             job* elem = job_list_clone->elements[i];
             if (elem->arrive_time <= time
-                && elem->service_time > 0
+                && elem->curr_service_time > 0
                 && elem->priority < min_priority) {
                 target = elem;
                 min_priority = elem->priority;
@@ -505,10 +527,13 @@ int algorithm_pr() {
         }
 
         job_by_time[time++] = target;
-        target->service_time--;
+        target->curr_service_time--;
+        if (target->curr_service_time <= 0) {
+            target->end_time = time;
+        }
     }
 
-    print_result("PR", job_by_time, time);
+    print_result("PR", job_by_time, time, job_list_clone);
 
     return 0;
 }
