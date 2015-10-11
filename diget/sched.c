@@ -269,11 +269,6 @@ int job_sort_comp_id(const void* p, const void* q) {
 
 
 int start() {
-    qsort(job_list->elements,
-          job_list->num_of_elements,
-          sizeof(void*),
-          job_sort_comp_id);
-    
     if (algorithm_sjf() < 0) {
         return -1;
     }
