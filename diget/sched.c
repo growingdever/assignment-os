@@ -366,7 +366,7 @@ void print_result(const char* type, job** job_by_time, int end_time, const struc
 
 int algorithm_sjf() {
     struct list* job_list_clone = clone_job_list();
-    job* job_by_time[1024];
+    job* job_by_time[30 * 260 + 10];
     
     qsort(job_list_clone->elements,
           (size_t) job_list_clone->num_of_elements,
@@ -402,7 +402,7 @@ int algorithm_sjf() {
 
 int algorithm_srt() {
     struct list* job_list_clone = clone_job_list();
-    job* job_by_time[1024];
+    job* job_by_time[30 * 260 + 10];
     
     qsort(job_list_clone->elements,
           (size_t) job_list_clone->num_of_elements,
@@ -437,7 +437,7 @@ int algorithm_srt() {
 
 int algorithm_rr() {
     struct list* job_list_clone = clone_job_list();
-    job* job_by_time[1024];
+    job* job_by_time[30 * 260 + 10];
     
     qsort(job_list_clone->elements,
           (size_t) job_list_clone->num_of_elements,
@@ -515,7 +515,7 @@ int algorithm_rr() {
 
 int algorithm_pr() {
     struct list* job_list_clone = clone_job_list();
-    job* job_by_time[1024];
+    job* job_by_time[30 * 260 + 10];
 
     qsort(job_list_clone->elements,
           (size_t) job_list_clone->num_of_elements,
