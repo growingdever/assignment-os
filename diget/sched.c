@@ -177,6 +177,19 @@ job* parse_line(const char* line) {
     if (line[0] == '#') {
         return NULL;
     }
+
+    unsigned long len = strlen(line);
+    int white_space_count = 0;
+    for (int i = 0; i < len; i ++) {
+        if (line[i] == ' ') {
+            white_space_count++;
+        }
+    }
+
+    if (white_space_count != 3) {
+        PRINT_ERROR("invalid format in line %d, ignored\n", line_number);
+        return NULL;
+    }
     
     char line_clone[256] = { 0, };
     strcpy(line_clone, line);
@@ -320,18 +333,18 @@ int exist_same_id(struct list* const li, const char* id) {
 }
 
 
-void print_result(const char* type, job** job_by_time, int end_time, const struct list* job_list) {
+void print_result(const char* type, job** job_by_time, int end_time, const struct list* jobs) {
     int total_turn_arount_time = 0;
     int total_waiting_time = 0;
-    for (int i = 0; i < job_list->num_of_elements; i ++) {
-        job* elem = job_list->elements[i];
+    for (int i = 0; i < jobs->num_of_elements; i ++) {
+        job* elem = jobs->elements[i];
         total_turn_arount_time += elem->end_time - elem->arrive_time;
         total_waiting_time += (elem->end_time - elem->arrive_time) - elem->service_time;
     }
 
     printf("[%s]\n", type);
-    for (int i = 0; i < job_list->num_of_elements; i ++) {
-        job* elem = job_list->elements[i];
+    for (int i = 0; i < jobs->num_of_elements; i ++) {
+        job* elem = jobs->elements[i];
         printf("%s ", elem->id);
         for (int j = 0; j < end_time; j ++) {
             if (!job_by_time[j]) {
@@ -348,9 +361,9 @@ void print_result(const char* type, job** job_by_time, int end_time, const struc
     }
     printf("CPU TIME: %d\n", end_time);
     printf("AVERAGE TURNAROUND TIME: %.2f\n", 
-        1.0f * total_turn_arount_time / job_list->num_of_elements);
+        1.0f * total_turn_arount_time / jobs->num_of_elements);
     printf("AVERAGE WAITING TIME: %.2f\n", 
-        1.0f * total_waiting_time / job_list->num_of_elements);
+        1.0f * total_waiting_time / jobs->num_of_elements);
 
     printf("\n");
 }
