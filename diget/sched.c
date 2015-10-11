@@ -34,6 +34,11 @@ struct list* list_create() {
     return li;
 }
 
+void list_delete(struct list* li) {
+    free(li->elements);
+    free(li);
+}
+
 void list_resize(struct list* li, int new_size) {
     void **new_elements = malloc(sizeof(void*) * new_size);
     for (int i = 0; i < li->num_of_elements; i ++) {
@@ -69,6 +74,13 @@ void* list_remove_at(struct list *li, int index) {
     li->num_of_elements--;
     
     return elem;
+}
+
+void list_clear(struct list* li) {
+    for (int i = 0; i < li->num_of_elements; i++) {
+        free(li->elements[i]);
+    }
+    li->num_of_elements = 0;
 }
 
 void* list_last(struct list *li) {
@@ -292,12 +304,28 @@ int end_all_jobs(struct list* job_list) {
 }
 
 
-void print_result(const char* type, command_line* job_by_time[1024], int end_time) {
+int exist_same_id(struct list* const job_list, const char* id) {
+    for (int i = 0; i < job_list->num_of_elements; i ++) {
+        command_line* cmd_line = job_list->elements[i];
+        if (strcmp(cmd_line->id, id) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+
+void print_result(const char* type, command_line** job_by_time, int end_time) {
     printf("[%s]\n", type);
     for (int i = 0; i < command_line_list->num_of_elements; i ++) {
         command_line* cmd_line = command_line_list->elements[i];
         printf("%s ", cmd_line->id);
         for (int j = 0; j < end_time; j ++) {
+            if (!job_by_time[j]) {
+                continue;
+            }
+            
             if (strcmp(cmd_line->id, job_by_time[j]->id) == 0) {
                 printf("*");
             } else {
@@ -312,7 +340,7 @@ void print_result(const char* type, command_line* job_by_time[1024], int end_tim
 
 int algorithm_sjf() {
     struct list* command_line_list_clone = clone_command_line_list();
-    command_line* job_by_time[1024];
+    command_line** job_by_time = malloc(sizeof(command_line*) * 1024);
     
     qsort(command_line_list_clone->elements,
           command_line_list_clone->num_of_elements,
@@ -345,7 +373,7 @@ int algorithm_sjf() {
 
 int algorithm_srt() {
     struct list* command_line_list_clone = clone_command_line_list();
-    command_line* job_by_time[1024];
+    command_line** job_by_time = malloc(sizeof(command_line*) * 1024);
     
     qsort(command_line_list_clone->elements,
           command_line_list_clone->num_of_elements,
@@ -374,6 +402,75 @@ int algorithm_srt() {
 }
 
 int algorithm_rr() {
+    struct list* command_line_list_clone = clone_command_line_list();
+    command_line** job_by_time = malloc(sizeof(command_line*) * 1024);
+    
+    qsort(command_line_list_clone->elements,
+          (size_t) command_line_list_clone->num_of_elements,
+          sizeof(void*),
+          command_line_sort_comp_arrive_time);
+    
+    
+    struct list* round_queue = list_create();
+    
+    int next_turn[1024];
+    int next_turn_count = 0;
+    memset(next_turn, -1, sizeof(next_turn));
+    
+    int time = 0;
+    int last_job_index = -1;
+    while (!end_all_jobs(command_line_list_clone)) {
+        // push job if not exist in queue
+        for (int i = 0; i < command_line_list_clone->num_of_elements; i ++) {
+            command_line* cmd_line = command_line_list_clone->elements[i];
+            if (cmd_line->arrive_time <= time
+                && cmd_line->service_time > 0) {
+                if (!exist_same_id(round_queue, cmd_line->id)) {
+                    int j;
+                    for (j = 0; j < next_turn_count; j ++) {
+                        if (next_turn[j] == i) {
+                            break;
+                        }
+                    }
+
+                    if (j == next_turn_count) {
+                        next_turn[next_turn_count++] = i;
+                    }
+                }
+            }
+        }
+
+        if (round_queue->num_of_elements == 0) {
+            for (int i = 0; i < next_turn_count; i ++) {
+                list_push_back(round_queue, command_line_list_clone->elements[next_turn[i]]);
+            }
+
+            memset(next_turn, -1, sizeof(next_turn));
+            next_turn_count = 0;
+        }
+
+        last_job_index = (last_job_index + 1) % round_queue->num_of_elements;
+        if (last_job_index == 0 && next_turn_count > 0) {
+            for (int i = 0; i < next_turn_count; i ++) {
+                list_push_back(round_queue, command_line_list_clone->elements[next_turn[i]]);
+            }
+            
+            memset(next_turn, -1, sizeof(next_turn));
+            next_turn_count = 0;
+        }
+        
+        command_line* target = round_queue->elements[last_job_index];
+        job_by_time[time++] = target;
+        target->service_time--;
+        
+        if (target->service_time <= 0) {
+            list_remove_at(round_queue, last_job_index);
+            last_job_index--;
+        }
+    }
+    
+    print_result("RR", job_by_time, time);
+    
     return 0;
 }
 
