@@ -466,6 +466,7 @@ int algorithm_rr() {
             }
         }
 
+        // load new jobs to queue if queue is empty
         if (round_queue->num_of_elements == 0) {
             for (int i = 0; i < next_turn_count; i ++) {
                 list_push_back(round_queue, job_list_clone->elements[next_turn[i]]);
@@ -476,6 +477,7 @@ int algorithm_rr() {
         }
 
         last_job_index = (last_job_index + 1) % round_queue->num_of_elements;
+        // load new jobs to queue if every round is rotated
         if (last_job_index == 0 && next_turn_count > 0) {
             for (int i = 0; i < next_turn_count; i ++) {
                 list_push_back(round_queue, job_list_clone->elements[next_turn[i]]);
@@ -489,6 +491,7 @@ int algorithm_rr() {
         job_by_time[time++] = target;
         target->curr_service_time--;
         
+        // remove ended job from round queue
         if (target->curr_service_time <= 0) {
             target->end_time = time;
 
