@@ -343,7 +343,7 @@ int algorithm_sjf() {
     command_line** job_by_time = malloc(sizeof(command_line*) * 1024);
     
     qsort(command_line_list_clone->elements,
-          command_line_list_clone->num_of_elements,
+          (size_t) command_line_list_clone->num_of_elements,
           sizeof(void*),
           command_line_sort_comp_arrive_time);
     
@@ -376,7 +376,7 @@ int algorithm_srt() {
     command_line** job_by_time = malloc(sizeof(command_line*) * 1024);
     
     qsort(command_line_list_clone->elements,
-          command_line_list_clone->num_of_elements,
+          (size_t) command_line_list_clone->num_of_elements,
           sizeof(void*),
           command_line_sort_comp_arrive_time);
     
@@ -475,5 +475,34 @@ int algorithm_rr() {
 }
 
 int algorithm_pr() {
+    struct list* command_line_list_clone = clone_command_line_list();
+    command_line** job_by_time = malloc(sizeof(command_line*) * 1024);
+
+    qsort(command_line_list_clone->elements,
+          (size_t) command_line_list_clone->num_of_elements,
+          sizeof(void*),
+          command_line_sort_comp_arrive_time);
+
+    int time = 0;
+    while (!end_all_jobs(command_line_list_clone)) {
+        int min_priority = 999;
+
+        command_line* target = NULL;
+        for (int i = 0; i < command_line_list_clone->num_of_elements; i ++) {
+            command_line* cmd_line = command_line_list_clone->elements[i];
+            if (cmd_line->arrive_time <= time
+                && cmd_line->service_time > 0
+                && cmd_line->priority < min_priority) {
+                target = cmd_line;
+                min_priority = cmd_line->priority;
+            }
+        }
+
+        job_by_time[time++] = target;
+        target->service_time--;
+    }
+
+    print_result("PR", job_by_time, time);
+
     return 0;
 }
