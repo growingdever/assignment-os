@@ -67,12 +67,25 @@ thread_func (void *arg)
 
   do
     {
-      tsem_wait (chopstick[i]);
-      tsem_wait (chopstick[k]);
-      update_status (i, 1);
-      update_status (i, 0);
-      tsem_signal (chopstick[i]);
-      tsem_signal (chopstick[k]);
+      if (i >= 4) {
+        tsem_wait (chopstick[k]);
+        tsem_wait (chopstick[i]);
+
+        update_status (i, 1);
+        update_status (i, 0);
+
+        tsem_signal (chopstick[k]);
+        tsem_signal (chopstick[i]);
+      } else {
+        tsem_wait (chopstick[i]);
+        tsem_wait (chopstick[k]);
+        
+        update_status (i, 1);
+        update_status (i, 0);
+
+        tsem_signal (chopstick[i]);
+        tsem_signal (chopstick[k]);
+      }
     }
   while (1);
   

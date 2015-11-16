@@ -11,7 +11,7 @@
 
 typedef struct test_semaphore tsem_t;
 
-tsem_t *tsem_new      (int      value);
+tsem_t *tsem_new      (int    value);
 void    tsem_free     (tsem_t  *sem);
 void    tsem_wait     (tsem_t  *sem);
 int     tsem_try_wait (tsem_t  *sem);
