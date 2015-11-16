@@ -41,3 +41,6 @@ dining: $(SEM_OBJS) $(DINING_OBJS)
 
 do1:
 	./test
+
+do2:
+	./dining
