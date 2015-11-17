@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <signal.h>
 
 
 void get_cmdline(int pid, char cmdline[1024]) {
@@ -182,6 +183,16 @@ static int pfs_readdir(const char *path,
 }
 
 static int pfs_unlink(const char *path) {
+    // path is const char*
+    char buf[1024] = { 0, };
+    memset(buf, 0, sizeof(buf));
+    strcpy(buf, path);
+
+    // parse pid
+    int pid = atoi(strtok(buf, "-") + 1);
+
+    kill(pid, SIGKILL);
+
     return 0;
 }
 
