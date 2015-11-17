@@ -14,7 +14,6 @@
 #include <dirent.h>
 
 
-
 void get_cmdline(int pid, char cmdline[1024]) {
     char path[1024] = { 0, };
     sprintf(path, "/proc/%d/cmdline", pid);
@@ -30,16 +29,6 @@ void get_cmdline(int pid, char cmdline[1024]) {
     fclose(fp);
 
     strcpy(cmdline, line);
-}
-
-time_t get_start_time(int pid) {
-    char path[1024] = { 0, };
-    sprintf(path, "/proc/%d", pid);
-
-    struct stat file_stat;
-    lstat(path, &file_stat);
-
-    return file_stat.st_mtime;
 }
 
 int get_usage_of_memory(int pid) {
@@ -67,7 +56,6 @@ int get_usage_of_memory(int pid) {
     return 0;
 }
 
-
 static int pfs_getattr(const char *path, struct stat *stbuf) {
     memset(stbuf, 0, sizeof(struct stat));
 
@@ -89,20 +77,32 @@ static int pfs_getattr(const char *path, struct stat *stbuf) {
 
         ret = 0;
     } else {
+        // path is const char*
         char buf[1024] = { 0, };
         memset(buf, 0, sizeof(buf));
         strcpy(buf, path);
 
-        char* pid_str = strtok(buf, "-") + 1;
+        // parse pid
+        int pid = atoi(strtok(buf, "-") + 1);
 
-        int pid = atoi(pid_str);
-        int memory_size = get_usage_of_memory(pid);
-        long long start_time = get_start_time(pid);
+        char path[1024] = { 0, };
+        sprintf(path, "/proc/%d", pid);
 
+        struct stat file_stat;
+        lstat(path, &file_stat);
+
+        // regular file
         stbuf->st_mode = S_IFREG | 0644;
         stbuf->st_nlink = 1;
-        stbuf->st_size = memory_size;
-        stbuf->st_mtime = (time_t)start_time;
+        // fill times
+        stbuf->st_atime = file_stat.st_atime;
+        stbuf->st_mtime = file_stat.st_mtime;
+        stbuf->st_ctime = file_stat.st_ctime;
+        // fill uid and gid
+        stbuf->st_uid = file_stat.st_uid;
+        stbuf->st_gid = file_stat.st_gid;
+        // fill memory size
+        stbuf->st_size = get_usage_of_memory(pid);
 
         ret = 0;
     }
@@ -185,26 +185,11 @@ static int pfs_unlink(const char *path) {
     return 0;
 }
 
-static int pfs_open(const char *path, struct fuse_file_info *fi)
-{
-    printf("pfs_open : %s\n", path);
-    return -ENOENT;
-}
-
-static int pfs_read(const char *path, char *buf, size_t size, off_t offset,
-                      struct fuse_file_info *fi)
-{
-    printf("pfs_read : %s\n", path);
-    return -ENOENT;
-}
-
 static struct fuse_operations pfs_oper =
         {
                 .getattr  = pfs_getattr,
                 .readdir  = pfs_readdir,
                 .unlink   = pfs_unlink,
-                .open    = pfs_open,
-                .read    = pfs_read,
         };
 
 int main(int argc, char **argv) {
