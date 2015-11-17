@@ -32,7 +32,17 @@ void get_cmdline(int pid, char cmdline[1024]) {
     strcpy(cmdline, line);
 }
 
-int usage_memory(int pid) {
+time_t get_start_time(int pid) {
+    char path[1024] = { 0, };
+    sprintf(path, "/proc/%d", pid);
+
+    struct stat file_stat;
+    lstat(path, &file_stat);
+
+    return file_stat.st_mtime;
+}
+
+int get_usage_of_memory(int pid) {
     char path[1024] = {0, };
     sprintf(path, "/proc/%d/status", pid);
 
@@ -63,8 +73,6 @@ static int pfs_getattr(const char *path, struct stat *stbuf) {
 
     int ret = -ENOENT;
 
-    printf("pfs_getattr : %s\n", path);
-
     if (strcmp(path, "/") == 0) {
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
@@ -82,18 +90,19 @@ static int pfs_getattr(const char *path, struct stat *stbuf) {
         ret = 0;
     } else {
         char buf[1024] = { 0, };
+        memset(buf, 0, sizeof(buf));
         strcpy(buf, path);
 
         char* pid_str = strtok(buf, "-") + 1;
 
         int pid = atoi(pid_str);
-        int memory_size = usage_memory(pid);
+        int memory_size = get_usage_of_memory(pid);
+        long long start_time = get_start_time(pid);
 
-        printf("%d memory size : %d\n", pid, memory_size);
-
-        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_mode = S_IFREG | 0644;
         stbuf->st_nlink = 1;
         stbuf->st_size = memory_size;
+        stbuf->st_mtime = (time_t)start_time;
 
         ret = 0;
     }
@@ -119,7 +128,7 @@ static int pfs_readdir(const char *path,
     if (strcmp(path, "/") == 0) {
         DIR *dp = opendir ("/proc");
         if (dp != NULL) {
-            int count = 30;
+            int count = 99999;
             while (count > 0) {
                 struct dirent *dir = readdir (dp);
                 if (!dir) {
