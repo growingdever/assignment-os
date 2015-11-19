@@ -129,8 +129,7 @@ static int pfs_readdir(const char *path,
     if (strcmp(path, "/") == 0) {
         DIR *dp = opendir ("/proc");
         if (dp != NULL) {
-            int count = 99999;
-            while (count > 0) {
+            while (1) {
                 struct dirent *dir = readdir (dp);
                 if (!dir) {
                     break;
@@ -143,6 +142,9 @@ static int pfs_readdir(const char *path,
 
                 struct stat file_stat;
                 lstat(proc_path, &file_stat);
+
+                // fill only directories(processes)
+                // if result of atoi function is 0, that is invalid file
                 if (S_ISDIR(file_stat.st_mode) && pid != 0) {
                     char cmdline[1024] = { 0, };
                     get_cmdline(pid, cmdline);
@@ -163,12 +165,11 @@ static int pfs_readdir(const char *path,
                         offset = 1;
                     }
 
+                    // make formatted file name
                     char result[1024] = { 0, };
                     sprintf(result, "%d-%s", pid, cmdline + offset);
 
                     filler(buf, result, NULL, 0);
-
-                    count--;
                 }
             }
             closedir (dp);
