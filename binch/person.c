@@ -14,7 +14,6 @@
 
 
 const char* file_path;
-char origin_data[sizeof(Person)];
 
 
 static void print_usage(const char *prog) {
@@ -97,21 +96,14 @@ void signal_handler_modify_attr(int signo, siginfo_t* si) {
 
         if (offset == person_get_offset_of_attr("age") || offset == person_get_offset_of_attr("gender")) {
             // read integer value
-            int* origin_value = (int *) (origin_data + offset);
             int* new_value = (int *) (person + offset);
-            fprintf(stdout, "%s: \'%d\' from \'%d\'\n", person_lookup_attr_with_offset(offset), *new_value, *origin_value);
+            fprintf(stdout, "%s: \'%d\' from \'%d\'\n", person_lookup_attr_with_offset(offset), *new_value, si->si_pid);
         } else {
             // read string value
-            char* origin_value = origin_data + offset;
             char* new_value = person + offset;
-            fprintf(stdout, "%s: \'%s\' from \'%s\'\n", person_lookup_attr_with_offset(offset), new_value, origin_value);
+            fprintf(stdout, "%s: \'%s\' from \'%d\'\n", person_lookup_attr_with_offset(offset), new_value, si->si_pid);
         }
         fflush(stdout);
-
-        // re-copy
-        for (int i = 0; i < sizeof(Person); i ++) {
-            *(origin_data + i) = *(person + i);
-        }
 
         munmap(person, sizeof(Person));
         close(fd);
@@ -146,20 +138,6 @@ void watch(const char* path) {
     sa_int.sa_handler = signal_handler_int_or_term;
     sigemptyset(&sa_int.sa_mask);
     sigaction(SIGTERM, &sa_int, &sa_old);
-
-
-    // init
-    {
-        int fd = open(file_path, O_RDWR);
-        char* person = mmap(0, sizeof(Person), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-        for (int i = 0; i < sizeof(Person); i ++) {
-            *(origin_data + i) = *(person + i);
-        }
-
-        munmap(person, sizeof(Person));
-        close(fd);
-    }
 
 
     // start monitoring
